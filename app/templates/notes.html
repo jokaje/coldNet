@@ -1,10 +1,118 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>$Title$</title>
-</head>
-<body>
-$END$
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Meine Notizen | coldNet{% endblock %}
+{% block page_title %}<span class="ml-4 text-sm font-medium text-green-500">Notizblock</span>{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <div class="lg:col-span-1">
+        <div class="bg-white dark-mode-card rounded-xl shadow-lg p-6">
+            <h2 class="text-2xl font-bold text-gray-800 dark-mode-text mb-4">Neue Notiz</h2>
+            <form id="note-form" class="space-y-4">
+                <div>
+                    <label for="note-title" class="block text-sm font-medium dark-mode-text-secondary">Titel</label>
+                    <input type="text" id="note-title" required class="mt-1 block w-full px-3 py-2 rounded-md shadow-sm dark-mode-input focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="note-content" class="block text-sm font-medium dark-mode-text-secondary">Inhalt</label>
+                    <textarea id="note-content" required rows="8" class="mt-1 block w-full px-3 py-2 rounded-md shadow-sm dark-mode-input focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+                </div>
+                <button type="submit" class="w-full py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-md">
+                    Notiz speichern
+                </button>
+            </form>
+        </div>
+    </div>
+    <div class="lg:col-span-2">
+        <h2 class="text-2xl font-bold text-gray-800 dark-mode-text mb-4">Meine Notizen</h2>
+        <div id="notes-container" class="space-y-4">
+            <p id="loading-notes" class="dark-mode-text-secondary">Lade Notizen...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const noteForm = document.getElementById('note-form');
+        const notesContainer = document.getElementById('notes-container');
+        const loadingIndicator = document.getElementById('loading-notes');
+
+        function renderNote(note) {
+            const noteEl = document.createElement('div');
+            noteEl.className = 'bg-white dark-mode-card rounded-xl shadow-md p-5';
+            noteEl.dataset.id = note.id;
+            const header = document.createElement('div');
+            header.className = 'flex justify-between items-center mb-2';
+            const title = document.createElement('h3');
+            title.className = 'text-lg font-bold dark-mode-text';
+            title.textContent = note.title;
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'text-red-500 hover:text-red-700 text-sm font-medium';
+            deleteBtn.textContent = 'Löschen';
+            deleteBtn.onclick = () => deleteNote(note.id);
+            header.appendChild(title);
+            header.appendChild(deleteBtn);
+            const content = document.createElement('p');
+            content.className = 'dark-mode-text-secondary whitespace-pre-wrap';
+            content.textContent = note.content;
+            const date = document.createElement('p');
+            date.className = 'text-xs text-gray-400 mt-3';
+            date.textContent = `Erstellt: ${new Date(note.created_at).toLocaleString('de-DE')}`;
+            noteEl.appendChild(header);
+            noteEl.appendChild(content);
+            noteEl.appendChild(date);
+            return noteEl;
+        }
+
+        async function fetchNotes() {
+            try {
+                const response = await fetch('/api/notes');
+                if (!response.ok) throw new Error('Notizen konnten nicht geladen werden.');
+                const notes = await response.json();
+                notesContainer.innerHTML = '';
+                if (notes.length === 0) {
+                    notesContainer.innerHTML = '<p class="dark-mode-text-secondary">Du hast noch keine Notizen erstellt.</p>';
+                } else {
+                    notes.forEach(note => notesContainer.appendChild(renderNote(note)));
+                }
+            } catch (error) {
+                loadingIndicator.textContent = error.message;
+                loadingIndicator.classList.add('text-red-500');
+            }
+        }
+
+        noteForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const title = document.getElementById('note-title').value;
+            const content = document.getElementById('note-content').value;
+            try {
+                const response = await fetch('/api/notes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, content })
+                });
+                if (!response.ok) throw new Error('Fehler beim Speichern.');
+                noteForm.reset();
+                await fetchNotes();
+            } catch (error) {
+                alert(error.message);
+            }
+        });
+
+        async function deleteNote(noteId) {
+            if (!confirm('Bist du sicher, dass du diese Notiz löschen möchtest?')) return;
+            try {
+                const response = await fetch(`/api/notes/${noteId}`, { method: 'DELETE' });
+                if (!response.ok) throw new Error('Fehler beim Löschen.');
+                document.querySelector(`[data-id='${noteId}']`).remove();
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        fetchNotes();
+    });
+</script>
+{% endblock %}
