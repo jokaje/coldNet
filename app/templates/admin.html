@@ -1,10 +1,103 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>$Title$</title>
-</head>
-<body>
-$END$
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Admin Panel | coldNet{% endblock %}
+{% block page_title %}<span class="ml-4 text-sm font-medium text-yellow-500">Admin Panel</span>{% endblock %}
+
+{% block content %}
+<h1 class="text-4xl font-bold text-gray-900 dark-mode-text mb-8">Systemeinstellungen</h1>
+
+<div class="bg-white dark-mode-card rounded-xl shadow-lg p-8">
+    <h2 class="text-2xl font-bold text-gray-800 dark-mode-text mb-2">KI-Gehirn Verwaltung</h2>
+    <p class="text-gray-600 dark-mode-text-secondary mb-6">Wähle das aktive KI-Modell für coldBot.</p>
+
+    <div class="mb-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center space-x-4">
+        <div id="status-icon" class="w-10 h-10 rounded-full flex items-center justify-center bg-gray-200 dark:bg-gray-700"></div>
+        <div>
+            <p class="text-sm text-gray-600 dark-mode-text-secondary">Aktuell geladenes Modell:</p>
+            <p id="current-model-status" class="text-lg font-semibold text-gray-900 dark-mode-text">Lade Status...</p>
+        </div>
+    </div>
+
+    <div class="space-y-4">
+        <div>
+            <label for="model-select" class="block text-sm font-medium text-gray-700 dark-mode-text-secondary">Verfügbare Modelle:</label>
+            <select id="model-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md dark-mode-input"></select>
+        </div>
+        <button id="load-model-button" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400">
+            Ausgewähltes Modell laden
+        </button>
+    </div>
+    <div id="message-container" class="mt-4 text-sm"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Das spezifische JavaScript für diese Seite bleibt hier.
+    document.addEventListener('DOMContentLoaded', () => {
+        const statusIcon = document.getElementById('status-icon');
+        const currentModelStatus = document.getElementById('current-model-status');
+        const modelSelect = document.getElementById('model-select');
+        const loadModelButton = document.getElementById('load-model-button');
+        const messageContainer = document.getElementById('message-container');
+
+        function showMessage(text, isError = false) {
+            messageContainer.textContent = text;
+            messageContainer.className = isError ? 'mt-4 text-sm text-red-600' : 'mt-4 text-sm text-green-600';
+        }
+
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/admin/status');
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+
+                if (data.ki_status.model_loaded) {
+                    currentModelStatus.textContent = data.ki_status.loaded_model_name;
+                    statusIcon.innerHTML = `<svg class="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`;
+                } else {
+                    currentModelStatus.textContent = "Kein Modell geladen";
+                    statusIcon.innerHTML = `<svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>`;
+                }
+
+                modelSelect.innerHTML = '';
+                data.available_models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = model.name;
+                    if (model.name === data.ki_status.loaded_model_name) option.selected = true;
+                    modelSelect.appendChild(option);
+                });
+            } catch (error) {
+                currentModelStatus.textContent = "Fehler beim Abrufen";
+                showMessage(error.message, true);
+            }
+        }
+
+        loadModelButton.addEventListener('click', async () => {
+            const selectedModel = modelSelect.value;
+            if (!selectedModel) { showMessage('Bitte ein Modell auswählen.', true); return; }
+            loadModelButton.disabled = true;
+            loadModelButton.textContent = 'Lade Modell...';
+            showMessage('Sende Ladebefehl an den KI-Server...');
+            try {
+                const response = await fetch('/api/admin/load_model', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: selectedModel })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+                showMessage(data.message);
+                await fetchStatus();
+            } catch (error) {
+                showMessage(error.message, true);
+            } finally {
+                loadModelButton.disabled = false;
+                loadModelButton.textContent = 'Ausgewähltes Modell laden';
+            }
+        });
+        fetchStatus();
+    });
+</script>
+{% endblock %}
