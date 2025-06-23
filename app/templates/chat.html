@@ -1,10 +1,192 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>$Title$</title>
-</head>
-<body>
-$END$
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}KI-Chat | coldNet{% endblock %}
+{% block page_title %}<span class="ml-4 text-sm font-medium text-indigo-500">KI-Chat</span>{% endblock %}
+
+{% block styles %}
+<style>
+    /* Zusätzliche Styles nur für die Chat-Seite */
+    .message-thoughts {
+        background-color: #f0f4f8; border-left: 3px solid #7f8c8d;
+        padding: 10px; margin-bottom: 8px; border-radius: 8px;
+        font-size: 13px; color: #555; font-style: italic; white-space: pre-wrap;
+    }
+    .dark .message-thoughts {
+        background-color: #2c3748; border-color: #4a5568; color: #a0aec0;
+    }
+    .cursor {
+        display: inline-block; width: 8px; height: 1em; background-color: #333;
+        animation: blink 1s step-end infinite;
+    }
+    .dark .cursor { background-color: #f9fafb; }
+    @keyframes blink {
+        from, to { background-color: transparent; }
+        50% { background-color: #333; }
+    }
+    .dark @keyframes blink {
+        50% { background-color: #f9fafb; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bg-white dark-mode-card rounded-xl shadow-lg flex flex-col h-full max-h-[75vh]">
+    <div class="chat-messages flex-grow p-6 overflow-y-auto" id="chatMessages">
+        <!-- Chat messages will be appended here -->
+    </div>
+    <div class="p-4 border-t border-gray-200 dark:border-gray-700">
+        <div class="mb-2 ml-2 flex items-center space-x-3">
+             <label for="showThoughts" class="text-xs text-gray-600 dark:text-gray-400 flex items-center cursor-pointer">
+                <input type="checkbox" id="showThoughts" class="h-4 w-4 rounded text-indigo-600 focus:ring-indigo-500" checked>
+                <span class="ml-2">Gedanken anzeigen</span>
+            </label>
+        </div>
+        <form class="flex items-center space-x-3" id="chatForm">
+            <textarea id="messageInput" class="flex-grow w-full px-4 py-2 rounded-lg border-gray-300 dark-mode-input" placeholder="Deine Nachricht an coldBot..." rows="1"></textarea>
+            <button type="submit" id="sendBtn" class="px-6 py-2 text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg font-semibold transition-all-fast disabled:bg-gray-400" disabled>Senden</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const chatMessages = document.getElementById('chatMessages');
+        const messageInput = document.getElementById('messageInput');
+        const chatForm = document.getElementById('chatForm');
+        const sendBtn = document.getElementById('sendBtn');
+        const showThoughtsCheckbox = document.getElementById('showThoughts');
+        let chatHistory = [];
+        let isThinking = false;
+
+        async function initializeChat() {
+            try {
+                const response = await fetch('/api/admin/status');
+                if (!response.ok) throw new Error('Status-Abfrage fehlgeschlagen.');
+                const data = await response.json();
+                if (data.ki_status.model_loaded) {
+                    sendBtn.disabled = false;
+                    addMessage('assistant', `Verbunden mit coldNet. Aktives Gehirn: ${data.ki_status.loaded_model_name}. Ich bin bereit.`);
+                } else {
+                    addMessage('assistant', `Verbindung zum coldNet-Server OK, aber auf dem KI-Server ist kein Modell geladen. Bitte im Admin-Panel ein Modell laden.`);
+                }
+            } catch (e) {
+                addMessage('assistant', `Fehler beim Verbindungsaufbau: ${e.message}`);
+            }
+        }
+        chatForm.addEventListener('submit', (e) => { e.preventDefault(); handleUserMessage(); });
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleUserMessage(); }
+        });
+        function handleUserMessage() {
+            const messageText = messageInput.value.trim();
+            if (isThinking || !messageText) return;
+            addMessage('user', messageText);
+            chatHistory.push({ role: 'user', content: messageText });
+            messageInput.value = '';
+            getAIResponse();
+        }
+        async function getAIResponse() {
+            isThinking = true;
+            sendBtn.disabled = true;
+            const aiMessageBubble = addMessage('assistant', '', true);
+            let fullResponseText = '';
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: chatHistory })
+                });
+                if (!response.ok) throw new Error((await response.json()).error || 'Unbekannter Serverfehler');
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let streamBuffer = '';
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    streamBuffer += decoder.decode(value, { stream: true });
+                    const lines = streamBuffer.split('\n');
+                    streamBuffer = lines.pop();
+                    for (const line of lines) {
+                        if (line.startsWith('data:')) {
+                            try {
+                                const jsonStr = line.substring(5).trim();
+                                if (jsonStr) {
+                                    const chunk = JSON.parse(jsonStr);
+                                    if (chunk.message && chunk.message.content) {
+                                        fullResponseText += chunk.message.content;
+                                    }
+                                }
+                            } catch (e) { /* Ignoriere Parse-Fehler */ }
+                        }
+                    }
+                    updateAIMessageUI(aiMessageBubble, fullResponseText, false);
+                }
+            } catch (error) {
+                fullResponseText = `<answer>Fehler: ${error.message}</answer>`;
+            } finally {
+                isThinking = false;
+                sendBtn.disabled = false;
+                const finalAnswer = extractContent(fullResponseText, 'answer');
+                if (finalAnswer) chatHistory.push({ role: 'assistant', content: finalAnswer });
+                updateAIMessageUI(aiMessageBubble, fullResponseText, true);
+            }
+        }
+        function addMessage(role, text) {
+            const messageWrapper = document.createElement('div');
+            messageWrapper.className = `message ${role} flex items-start space-x-3`;
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar w-8 h-8 rounded-full flex items-center justify-center font-bold text-white flex-shrink-0';
+            avatar.textContent = role === 'user' ? 'DU' : 'AI';
+            avatar.classList.add(role === 'user' ? 'bg-gray-500' : 'bg-indigo-500');
+            const contentWrapper = document.createElement('div');
+            contentWrapper.className = "message-content-wrapper w-full max-w-full";
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content bg-gray-200 dark:bg-gray-700 dark-mode-text rounded-lg p-3 inline-block';
+            contentDiv.textContent = text;
+            if (role === 'user') contentDiv.classList.add('bg-indigo-500', 'text-white', 'dark:bg-indigo-600');
+            if (role === 'assistant') {
+                const thoughtsDiv = document.createElement('div');
+                thoughtsDiv.className = 'message-thoughts hidden';
+                contentWrapper.appendChild(thoughtsDiv);
+                if(text === '') contentDiv.innerHTML = '<span class="cursor"></span>';
+            }
+            contentWrapper.appendChild(contentDiv);
+            messageWrapper.appendChild(avatar);
+            messageWrapper.appendChild(contentWrapper);
+            chatMessages.appendChild(messageWrapper);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return messageWrapper;
+        }
+        function updateAIMessageUI(messageWrapper, fullText, isFinal) {
+            const thoughtsDiv = messageWrapper.querySelector('.message-thoughts');
+            const answerDiv = messageWrapper.querySelector('.message-content');
+            const thoughtText = extractContent(fullText, 'thought');
+            const answerText = extractContent(fullText, 'answer');
+            if (thoughtsDiv) {
+                thoughtsDiv.innerHTML = thoughtText.replace(/\n/g, '<br>');
+                thoughtsDiv.style.display = showThoughtsCheckbox.checked && thoughtText ? 'block' : 'none';
+            }
+            if (answerDiv) {
+                let finalAnswerHTML = answerText.replace(/\n/g, '<br>');
+                if (!isFinal) finalAnswerHTML += '<span class="cursor"></span>';
+                answerDiv.innerHTML = finalAnswerHTML;
+            }
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        function extractContent(rawText, tagName) {
+            const regex = new RegExp(`<${tagName}>(.*?)<\/${tagName}>`, 's');
+            const match = rawText.match(regex);
+            if (!match) return tagName === 'answer' ? rawText.replace(/<thought>.*?<\/thought>/s, '').trim() : '';
+            return match[1].trim();
+        }
+        showThoughtsCheckbox.addEventListener('change', () => {
+            document.querySelectorAll('.message-thoughts').forEach(el => {
+                if (el.textContent.trim()) el.style.display = showThoughtsCheckbox.checked ? 'block' : 'none';
+            });
+        });
+        initializeChat();
+    });
+</script>
+{% endblock %}
