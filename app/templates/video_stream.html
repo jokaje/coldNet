@@ -1,10 +1,51 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>$Title$</title>
-</head>
-<body>
-$END$
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block title %}Video Streaming | coldNet{% endblock %}
+{% block page_title %}<span class="ml-4 text-sm font-medium text-blue-500">Video-Stream</span>{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-4xl font-bold text-gray-900 dark-mode-text">Videothek</h1>
+    <a href="{{ url_for('main.scan_videos') }}" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">
+        Bibliothek neu scannen
+    </a>
+</div>
+
+<!-- Such- und Filterleiste -->
+<form method="get" class="bg-white dark-mode-card p-4 rounded-lg shadow-md mb-8 flex items-center gap-4">
+    <input type="text" name="search" placeholder="Titel suchen..." value="{{ search_query or '' }}" class="w-full px-3 py-2 rounded-md dark-mode-input">
+    <select name="category" class="px-3 py-2 rounded-md dark-mode-input">
+        {% for cat in categories %}
+            <option value="{{ cat }}" {% if cat == selected_category %}selected{% endif %}>{{ cat }}</option>
+        {% endfor %}
+    </select>
+    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md">Suchen</button>
+</form>
+
+<!-- Video-Grid -->
+{% if videos_categorized %}
+    {% for category, videos in videos_categorized.items() %}
+        <div class="mb-12">
+            <h2 class="text-2xl font-bold border-b-2 border-indigo-500 pb-2 mb-6 dark-mode-text">{{ category }}</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                {% for video in videos %}
+                <a href="{{ url_for('main.watch_video', video_id=video.id) }}" class="group block bg-white dark-mode-card rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-2 transition-all-fast">
+                    <div class="relative pt-[150%]"> <!-- Aspect ratio for posters -->
+                        <img src="{{ video.thumbnail_url or url_for('static', filename='placeholder.png') }}" alt="{{ video.title }}" class="absolute top-0 left-0 w-full h-full object-cover">
+                        <div class="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <svg class="w-16 h-16 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                        </div>
+                    </div>
+                    <div class="p-3">
+                        <h3 class="font-bold text-md truncate dark-mode-text" title="{{ video.title }}">{{ video.title }}</h3>
+                        <p class="text-sm text-gray-500 dark-mode-text-secondary">{{ video.year or 'Unbekannt' }}</p>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+    {% endfor %}
+{% else %}
+    <p class="text-center text-gray-500 dark-mode-text-secondary">Keine Videos gefunden. Bitte stelle sicher, dass der Video-Ordner korrekt konfiguriert ist und führe einen Scan durch.</p>
+{% endif %}
+{% endblock %}
