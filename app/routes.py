@@ -1,6 +1,3 @@
-# Ordner: /coldNet/app/
-# Datei: routes.py
-
 from flask import (
     render_template, request, jsonify, Blueprint, redirect, url_for,
     abort, Response, stream_with_context, current_app, send_from_directory, flash
