@@ -15,8 +15,8 @@ import re
 from functools import wraps
 
 main = Blueprint('main', __name__)
-KI_SERVER_URL = "http://192.168.86.206:8080"
-REQUESTS_TIMEOUT = (10, 300)  # (connect_timeout, read_timeout)
+# Die Timeouts für Anfragen: (Verbindungsaufbau, Warten auf Antwort)
+REQUESTS_TIMEOUT = (10, 300) 
 
 
 # --- Hilfsfunktionen ---
@@ -28,10 +28,28 @@ def admin_required(f):
 
     return decorated_function
 
-
 def allowed_video_file(filename):
     return '.' in filename and os.path.splitext(filename)[1].lower() in current_app.config['ALLOWED_VIDEO_EXTENSIONS']
 
+# --- NEU: Dynamische Auswahl der KI-Server-URL ---
+def get_active_ki_server_url():
+    """
+    Versucht, den KI-Server lokal zu erreichen. Wenn das fehlschlägt,
+    wird die öffentliche URL als Fallback verwendet.
+    """
+    local_url = current_app.config['KI_SERVER_URL_LOCAL']
+    public_url = current_app.config['KI_SERVER_URL_PUBLIC']
+    
+    try:
+        # Teste die Verbindung zur lokalen URL mit einem kurzen Timeout (1 Sekunde)
+        requests.get(f"{local_url}/health", timeout=1)
+        # Wenn erfolgreich, gib die lokale URL zurück
+        current_app.logger.info("KI-Server lokal erreichbar.")
+        return local_url
+    except requests.exceptions.RequestException:
+        # Wenn nicht erfolgreich, gib die öffentliche URL zurück
+        current_app.logger.info("KI-Server lokal nicht erreichbar, wechsle zu öffentlicher URL.")
+        return public_url
 
 # --- Seiten-Routen ---
 @main.route('/')
@@ -171,9 +189,11 @@ def logout():
 @admin_required
 def get_ki_server_status():
     try:
-        health_response = requests.get(f"{KI_SERVER_URL}/health", timeout=REQUESTS_TIMEOUT[0])
+        # GEÄNDERT: Aktive URL dynamisch abrufen
+        ki_server_url = get_active_ki_server_url()
+        health_response = requests.get(f"{ki_server_url}/health", timeout=REQUESTS_TIMEOUT[0])
         health_response.raise_for_status()
-        models_response = requests.get(f"{KI_SERVER_URL}/models", timeout=REQUESTS_TIMEOUT[0])
+        models_response = requests.get(f"{ki_server_url}/models", timeout=REQUESTS_TIMEOUT[0])
         models_response.raise_for_status()
         return jsonify(
             {'ki_status': health_response.json(), 'available_models': models_response.json().get('models', [])}), 200
@@ -188,7 +208,9 @@ def load_ki_model():
     data = request.get_json();
     if not data or 'model' not in data: return jsonify({'error': 'Modellname fehlt'}), 400
     try:
-        response = requests.post(f"{KI_SERVER_URL}/load_model", json={'model': data['model']},
+        # GEÄNDERT: Aktive URL dynamisch abrufen
+        ki_server_url = get_active_ki_server_url()
+        response = requests.post(f"{ki_server_url}/load_model", json={'model': data['model']},
                                  timeout=REQUESTS_TIMEOUT[1])
         response.raise_for_status()
         return jsonify(response.json()), response.status_code
@@ -234,7 +256,9 @@ def api_chat():
     if not data or 'messages' not in data or not data['messages']:
         return jsonify({'error': 'Fehlende Nachrichten'}), 400
     try:
-        health_response = requests.get(f"{KI_SERVER_URL}/health", timeout=REQUESTS_TIMEOUT[0])
+        # GEÄNDERT: Aktive URL dynamisch abrufen
+        ki_server_url = get_active_ki_server_url()
+        health_response = requests.get(f"{ki_server_url}/health", timeout=REQUESTS_TIMEOUT[0])
         ki_status = health_response.json()
         loaded_model = ki_status.get('loaded_model_name')
         if not loaded_model: return jsonify({'error': 'Auf dem KI-Server ist kein Modell geladen.'}), 503
@@ -245,7 +269,7 @@ def api_chat():
         router_payload = {"model": loaded_model, "messages": [{"role": "system", "content": router_system_prompt},
                                                               {"role": "user", "content": router_user_prompt}],
                           "stream": False}
-        router_response = requests.post(f"{KI_SERVER_URL}/api/chat", json=router_payload, timeout=REQUESTS_TIMEOUT[0])
+        router_response = requests.post(f"{ki_server_url}/api/chat", json=router_payload, timeout=REQUESTS_TIMEOUT[0])
         intent = router_response.json().get('message', {}).get('content', 'ALLGEMEIN').strip().upper()
 
         messages_to_send = data['messages']
@@ -257,7 +281,7 @@ def api_chat():
                 messages_to_send.insert(-1, {"role": "system", "content": notes_context})
 
         final_payload = {"model": loaded_model, "messages": messages_to_send, "stream": True}
-        ki_response = requests.post(f"{KI_SERVER_URL}/api/chat", json=final_payload, stream=True,
+        ki_response = requests.post(f"{ki_server_url}/api/chat", json=final_payload, stream=True,
                                     timeout=REQUESTS_TIMEOUT[1])
         ki_response.raise_for_status()
 
@@ -266,4 +290,5 @@ def api_chat():
 
         return Response(stream_with_context(generate()), content_type=ki_response.headers['Content-Type'])
     except Exception as e:
-        return jsonify({'error': f'Fehler: {e}'}), 500
+        current_app.logger.error(f"Fehler in /api/chat: {e}")
+        return jsonify({'error': f'Ein interner Fehler ist aufgetreten: {e}'}), 500
