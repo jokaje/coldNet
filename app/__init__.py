@@ -1,6 +1,3 @@
-# Ordner: /coldNet/app/
-# Datei: __init__.py
-
 import os
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
@@ -20,6 +17,7 @@ def create_app():
     app = Flask(__name__, instance_relative_config=True)
 
     # --- Konfiguration ---
+    # WICHTIG: Für den Produktivbetrieb sollte dieser Schlüssel aus einer Umgebungsvariable geladen werden
     app.config['SECRET_KEY'] = 'dein-sehr-geheimer-und-schwer-zu-erratender-schluessel'
 
     if not os.path.exists(app.instance_path):
@@ -27,6 +25,13 @@ def create_app():
 
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(app.instance_path, "coldnet.db")}'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    
+    # --- NEU: Konfiguration der KI-Server-Adressen ---
+    # Die lokale Adresse für schnelle Verbindungen im Heimnetzwerk
+    app.config['KI_SERVER_URL_LOCAL'] = 'http://192.168.86.206:8080'
+    # Die öffentliche Adresse für den Zugriff von außerhalb
+    app.config['KI_SERVER_URL_PUBLIC'] = 'http://coldnet.dedyn.io:80'
+
 
     # Konfiguration für den Video-Dienst
     # Passe diesen Pfad an den Speicherort deiner Videos an.
